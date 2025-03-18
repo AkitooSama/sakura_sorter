@@ -1,0 +1,5 @@
+.vscode/
+__pycache__/
+sorting_rules.json
+sorter.spec
+venv/
