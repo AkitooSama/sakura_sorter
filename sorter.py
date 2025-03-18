@@ -7,6 +7,7 @@ import tkinter as tk
 from tkinter import filedialog, ttk
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
+import time
 
 CONFIG_FILE = "sorting_rules.json"
 TAG_PATTERN = r"^(\[.*?\])"
@@ -31,12 +32,44 @@ class AutoSortHandler(FileSystemEventHandler):
     def on_created(self, event):
         if event.is_directory:
             return
+        
         file_path = event.src_path
         file_name = os.path.basename(file_path)
-        tag = self.extract_tag(file_name)
-        if tag and tag in self.sorting_rules:
-            destination_folder = self.sorting_rules[tag]
-            self.move_file(file_path, destination_folder)
+
+        if self.wait_for_download(file_path):
+            tag = self.extract_tag(file_name)
+            if tag and tag in self.sorting_rules:
+                destination_folder = self.sorting_rules[tag]
+                self.move_file(file_path, destination_folder)
+
+    def wait_for_download(self, file_path, timeout=30, interval=1):
+        """Waits until the file is fully downloaded and not locked by any process."""
+        previous_size = -1
+        elapsed_time = 0
+
+        while elapsed_time < timeout:
+            if not os.path.exists(file_path):
+                time.sleep(interval)
+                elapsed_time += interval
+                continue
+
+            current_size = os.path.getsize(file_path)
+
+            # Check if the file size has stopped changing
+            if current_size == previous_size:
+                # Check if the file is locked (Windows-specific issue)
+                try:
+                    with open(file_path, "rb"):
+                        return True  # If file can be opened, it's not locked
+                except PermissionError:
+                    pass  # File is still locked, wait longer
+
+            previous_size = current_size
+            time.sleep(interval)
+            elapsed_time += interval
+
+        print(f"Timeout: File {file_path} may not have fully downloaded.")
+        return False
 
     def extract_tag(self, file_name):
         match = re.match(TAG_PATTERN, file_name)
@@ -47,7 +80,10 @@ class AutoSortHandler(FileSystemEventHandler):
             return
         file_name = os.path.basename(file_path)
         new_path = get_unique_filename(destination_folder, file_name)
+        
+        time.sleep(1)  # Ensure processing delay of 1 second before moving
         shutil.move(file_path, new_path)
+
 
 
 class AutoSorterApp:
